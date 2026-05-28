@@ -255,6 +255,59 @@
     return best;
   }
 
+  // Smallest option magnitude for a stat among free / its own / others' milestones.
+  function smallestFreeChunk(s) {
+    let m = null;
+    unlockedRows().forEach((r) => {
+      if (assign[r.milestone] != null) return;
+      const i = offerIndex(r, s);
+      if (i >= 0) { const mag = Math.abs(r.options[i].pct); if (m == null || mag < m) m = mag; }
+    });
+    return m;
+  }
+  function smallestAssignedChunk(s) {
+    let m = null;
+    unlockedRows().forEach((r) => {
+      const oi = assign[r.milestone];
+      if (oi != null && r.options[oi].type === s) {
+        const mag = Math.abs(r.options[oi].pct); if (m == null || mag < m) m = mag;
+      }
+    });
+    return m;
+  }
+  function smallestOtherChunk(s) {
+    let m = null;
+    unlockedRows().forEach((r) => {
+      const oi = assign[r.milestone];
+      if (oi != null && r.options[oi].type !== s) {
+        const i = offerIndex(r, s);
+        if (i >= 0) { const mag = Math.abs(r.options[i].pct); if (m == null || mag < m) m = mag; }
+      }
+    });
+    return m;
+  }
+
+  // Nudge a stat by one milestone via the +/- buttons.
+  function stepStat(s, dir) {
+    const picked = Math.abs(pickedByStat()[s]);
+    if (dir < 0) {
+      const sm = smallestAssignedChunk(s);
+      target[s] = sm == null ? 0 : Math.max(0, picked - sm);
+    } else {
+      const free = smallestFreeChunk(s);
+      if (free != null) {
+        target[s] = picked + free;            // claim one free milestone
+      } else {
+        const other = smallestOtherChunk(s);  // none free: ask beyond max -> flags blockers
+        target[s] = picked + (other != null ? other : 5);
+      }
+    }
+    allocTouched = true;
+    normalize();
+    refreshAlloc();
+    save();
+  }
+
   // Picked % per stat from the current `assign`.
   function pickedByStat() {
     const t = {};
@@ -428,7 +481,11 @@
         `<div class="a-top">` +
         `<span class="a-name">${s}<span class="blk-tag" hidden>↓ reduce</span></span>` +
         `<span class="a-read"></span></div>` +
+        `<div class="a-ctl">` +
+        `<button type="button" class="a-step a-minus" aria-label="Decrease ${s}">−</button>` +
         `<input type="range" min="0" step="5" />` +
+        `<button type="button" class="a-step a-plus" aria-label="Increase ${s}">+</button>` +
+        `</div>` +
         `<div class="a-bar"><span class="a-fill"></span><span class="a-room"></span><span class="a-short"></span></div>`;
       const input = row.querySelector("input");
       input.addEventListener("input", () => {
@@ -438,6 +495,8 @@
         refreshAlloc();
         save();
       });
+      row.querySelector(".a-minus").addEventListener("click", () => stepStat(s, -1));
+      row.querySelector(".a-plus").addEventListener("click", () => stepStat(s, 1));
       els.allocList.appendChild(row);
     });
     refreshAlloc();
