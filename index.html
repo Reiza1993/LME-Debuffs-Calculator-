@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Survivor.io — Clan Leader Debuff Calculator</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app">
+  <header class="hero">
+    <h1>🧟 Survivor.io Debuff Calculator</h1>
+    <p class="subtitle">Plan your Clan Leaders' Last Man Standing debuffs based on Testament Medals.</p>
+  </header>
+
+  <section class="card input-card">
+    <label for="medals">Testament Medals achieved (as a clan)</label>
+    <div class="medal-row">
+      <input type="number" id="medals" min="0" step="1" placeholder="e.g. 12000" />
+      <button id="maxBtn" class="ghost" type="button" title="Set to highest milestone">Max</button>
+    </div>
+    <div class="quick-set">
+      <span>Quick set:</span>
+      <button type="button" data-set="2000">2k</button>
+      <button type="button" data-set="10000">10k</button>
+      <button type="button" data-set="30000">30k</button>
+      <button type="button" data-set="50000">50k</button>
+      <button type="button" data-set="87000">87k</button>
+    </div>
+    <p class="hint" id="reachInfo"></p>
+  </section>
+
+  <div class="grid">
+    <section class="card">
+      <div class="card-head">
+        <h2>🎯 Milestone Options</h2>
+        <span class="muted">Pick <strong>one</strong> option per unlocked milestone</span>
+      </div>
+      <div class="card-actions">
+        <button type="button" id="clearPicks" class="ghost small">Clear all picks</button>
+      </div>
+      <div id="optionsList" class="options-list"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>🔒 Static Milestones</h2>
+        <span class="muted">Always applied — leaders can't change these</span>
+      </div>
+      <div id="staticList" class="static-list"></div>
+    </section>
+  </div>
+
+  <section class="card summary-card">
+    <div class="card-head">
+      <h2>📊 Total Debuff Summary</h2>
+      <span class="muted">Selected picks + static, grouped by type</span>
+    </div>
+    <div id="summary" class="summary-grid"></div>
+    <div id="specialUnlocks" class="special-unlocks"></div>
+  </section>
+
+  <footer class="foot">
+    Built from the LME Debuff Calculator sheet. Percentages stack additively within each debuff type.
+  </footer>
+</div>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
