@@ -18,6 +18,9 @@
     copyLink: document.getElementById("copyLink"),
     copySummary: document.getElementById("copySummary"),
     toast: document.getElementById("toast"),
+    shareOut: document.getElementById("shareOut"),
+    shareText: document.getElementById("shareText"),
+    shareHint: document.getElementById("shareHint"),
   };
 
   // ---- state ----
@@ -238,28 +241,46 @@
     }
   }
   function shareUrl() {
-    return location.origin + location.pathname + "#" + encodeState();
+    const base = location.href.split("#")[0];
+    return base + "#" + encodeState();
   }
 
+  // Try the async Clipboard API, fall back to execCommand on the visible field.
   function copyText(text) {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
+    if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext) {
       return navigator.clipboard.writeText(text);
     }
-    return new Promise((resolve, reject) => {
-      try {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        ta.style.position = "fixed";
-        ta.style.opacity = "0";
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-        resolve();
-      } catch (e) {
-        reject(e);
+    return Promise.reject(new Error("clipboard-unavailable"));
+  }
+
+  function legacyCopy() {
+    try {
+      els.shareText.focus();
+      els.shareText.select();
+      els.shareText.setSelectionRange(0, els.shareText.value.length);
+      return document.execCommand("copy");
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Show the text in a selectable field and try to copy it to the clipboard.
+  function offerCopy(text) {
+    els.shareOut.hidden = false;
+    els.shareText.value = text;
+    copyText(text).then(
+      () => {
+        showToast("Copied to clipboard!");
+        els.shareHint.textContent = "Copied! You can also select the text above to copy again.";
+      },
+      () => {
+        const ok = legacyCopy();
+        showToast(ok ? "Copied to clipboard!" : "Select the text above and copy (Ctrl/Cmd+C)");
+        els.shareHint.textContent = ok
+          ? "Copied! The text is also selectable above."
+          : "Couldn't auto-copy here — the text is selected above, press Ctrl/Cmd+C.";
       }
-    });
+    );
   }
 
   let toastTimer = null;
@@ -267,7 +288,7 @@
     els.toast.textContent = msg;
     els.toast.classList.add("show");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => els.toast.classList.remove("show"), 2200);
+    toastTimer = setTimeout(() => els.toast.classList.remove("show"), 2600);
   }
 
   function summaryText() {
@@ -315,18 +336,11 @@
     update();
   });
   els.copyLink.addEventListener("click", () => {
-    const url = shareUrl();
-    history.replaceState(null, "", "#" + encodeState());
-    copyText(url).then(
-      () => showToast("Share link copied!"),
-      () => showToast("Copy failed — link in address bar")
-    );
+    try { history.replaceState(null, "", "#" + encodeState()); } catch (e) { /* file:// */ }
+    offerCopy(shareUrl());
   });
   els.copySummary.addEventListener("click", () => {
-    copyText(summaryText()).then(
-      () => showToast("Summary copied!"),
-      () => showToast("Copy failed")
-    );
+    offerCopy(summaryText());
   });
 
   // ---- init ----

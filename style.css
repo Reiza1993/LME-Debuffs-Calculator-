@@ -150,6 +150,15 @@ button.small { padding: 6px 12px; font-size: .82rem; }
 .toast { font-size: .82rem; color: var(--accent); opacity: 0; transition: opacity .2s ease; }
 .toast.show { opacity: 1; }
 
+.share-out { margin: 0 0 16px; }
+.share-out[hidden] { display: none; }
+.share-out textarea {
+  width: 100%; resize: vertical; font: inherit; font-size: .85rem;
+  padding: 10px 12px; border-radius: 10px; border: 1px solid var(--accent);
+  background: var(--bg); color: var(--text); box-sizing: border-box;
+}
+.share-out .hint { margin: 6px 0 0; }
+
 .special-unlocks { margin-top: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
 .unlock-chip {
   font-size: .8rem; padding: 6px 12px; border-radius: 999px;
