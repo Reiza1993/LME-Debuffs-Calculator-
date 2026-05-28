@@ -11,6 +11,13 @@ Enter the Testament Medals your clan has achieved, and the page shows:
 
 1. **Milestone Options** — the higher your medals, the more milestones unlock.
    Each unlocked milestone lets leaders pick **one** of several debuff options.
+   - **Manual** tab: pick each milestone yourself.
+   - **Auto-Pick by Priority** tab: set a priority slider per debuff type and let
+     the calculator allocate every milestone for you. Because each milestone is a
+     single choice, raising one debuff's priority means the others reach less —
+     the live preview shows each type's result vs. its solo maximum. Presets
+     (Crit Focus, Skill Nuke, Control, …) set the sliders in one click, and
+     **Apply** fills your picks so you can still fine-tune them manually.
 2. **Static Milestones** — fixed debuffs that always apply (leaders can't
    change these) for every milestone you've reached.
 3. **Total Debuff Summary** — the sum of your picked options **plus** the static

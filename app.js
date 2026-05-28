@@ -21,21 +21,69 @@
     shareOut: document.getElementById("shareOut"),
     shareText: document.getElementById("shareText"),
     shareHint: document.getElementById("shareHint"),
+    tabs: document.querySelectorAll(".tab"),
+    tabManual: document.getElementById("tab-manual"),
+    tabAuto: document.getElementById("tab-auto"),
+    sliders: document.getElementById("sliders"),
+    presets: document.getElementById("presets"),
+    applyAuto: document.getElementById("applyAuto"),
+    resetWeights: document.getElementById("resetWeights"),
+    autoPreview: document.getElementById("autoPreview"),
+  };
+
+  // Debuff types that can appear as milestone options, ordered with the main
+  // damage debuffs first. Used for the Auto-Pick priority sliders.
+  const PRIORITY_ORDER = [
+    "Crit Rate", "Crit Damage", "Weakened", "Chill",
+    "Poison", "Shield", "Laceration", "Skill",
+    "Vulnerability", "Damage to Bosses", "Xeno Pet Damage",
+  ];
+  const OPTION_TYPES = (() => {
+    const set = new Set();
+    DATA.options.forEach((r) => r.options.forEach((o) => set.add(o.type)));
+    const ordered = PRIORITY_ORDER.filter((t) => set.has(t));
+    [...set].forEach((t) => { if (!ordered.includes(t)) ordered.push(t); });
+    return ordered;
+  })();
+  const DEFAULT_WEIGHT = 5;
+  const MAX_WEIGHT = 10;
+
+  const PRESETS = {
+    "Balanced": null, // null = every type at DEFAULT_WEIGHT
+    "Crit Focus": { "Crit Rate": 10, "Crit Damage": 10 },
+    "Skill Nuke": { "Skill": 10, "Crit Damage": 8 },
+    "Control": { "Chill": 10, "Poison": 9, "Weakened": 8 },
+    "Defense Shred": { "Shield": 10, "Vulnerability": 9 },
   };
 
   // ---- state ----
   let medals = 0;
   let picks = {}; // milestone -> selected option index (number) or "skip"
+  let weights = {}; // type -> priority 0..MAX_WEIGHT
+
+  function defaultWeights() {
+    const w = {};
+    OPTION_TYPES.forEach((t) => { w[t] = DEFAULT_WEIGHT; });
+    return w;
+  }
 
   function loadStorage() {
     try {
       const s = JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
       medals = Number(s.medals) || 0;
       picks = s.picks && typeof s.picks === "object" ? s.picks : {};
-    } catch (e) { /* ignore */ }
+      weights = defaultWeights();
+      if (s.weights && typeof s.weights === "object") {
+        OPTION_TYPES.forEach((t) => {
+          if (typeof s.weights[t] === "number") weights[t] = s.weights[t];
+        });
+      }
+    } catch (e) {
+      weights = defaultWeights();
+    }
   }
   function save() {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ medals, picks }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({ medals, picks, weights }));
   }
 
   const fmtPct = (n) => (n > 0 ? "+" : "") + n + "%";
@@ -215,12 +263,154 @@
     els.reachInfo.innerHTML = txt;
   }
 
+  // ---- auto-pick by priority ----
+  // Allocate each unlocked milestone to one of its option types using the
+  // divisor (Jefferson/D'Hondt) method, so a type with priority 8 wins roughly
+  // twice as many contested milestones as one with priority 4. Maxing one type
+  // therefore starves the others. Returns picks map + per-type totals/counts.
+  function allocate(w) {
+    const counts = {};
+    const totals = {};
+    const picksMap = {};
+    OPTION_TYPES.forEach((t) => { counts[t] = 0; totals[t] = 0; });
+
+    DATA.options
+      .filter((o) => o.milestone <= medals)
+      .sort((a, b) => a.milestone - b.milestone)
+      .forEach((row) => {
+        let best = null;
+        row.options.forEach((opt, idx) => {
+          const weight = w[opt.type] || 0;
+          if (weight <= 0) return;
+          const quotient = weight / (counts[opt.type] + 1);
+          if (
+            !best ||
+            quotient > best.quotient + 1e-9 ||
+            (Math.abs(quotient - best.quotient) < 1e-9 &&
+              Math.abs(opt.pct) > Math.abs(best.opt.pct))
+          ) {
+            best = { idx, opt, quotient };
+          }
+        });
+        if (best) {
+          picksMap[row.milestone] = best.idx;
+          counts[best.opt.type] += 1;
+          totals[best.opt.type] += best.opt.pct;
+        }
+      });
+
+    return { picksMap, counts, totals };
+  }
+
+  // Max % a type could reach if it had absolute priority everywhere it appears.
+  function soloMax(type) {
+    let total = 0;
+    DATA.options
+      .filter((o) => o.milestone <= medals)
+      .forEach((row) => {
+        const matches = row.options.filter((o) => o.type === type);
+        if (matches.length) {
+          total += Math.min(...matches.map((o) => o.pct)); // most negative
+        }
+      });
+    return total;
+  }
+
+  function renderSliders() {
+    els.sliders.innerHTML = "";
+    OPTION_TYPES.forEach((type) => {
+      const row = document.createElement("div");
+      row.className = "slider-row" + (weights[type] === 0 ? " zero" : "");
+      row.innerHTML =
+        `<span class="s-name">${type}</span>` +
+        `<input type="range" min="0" max="${MAX_WEIGHT}" step="1" value="${weights[type]}" data-type="${type}" />` +
+        `<span class="s-out" data-out="${type}"></span>`;
+      els.sliders.appendChild(row);
+    });
+    els.sliders.querySelectorAll('input[type="range"]').forEach((inp) => {
+      inp.addEventListener("input", () => {
+        weights[inp.dataset.type] = Number(inp.value);
+        inp.closest(".slider-row").classList.toggle("zero", Number(inp.value) === 0);
+        markActivePreset();
+        renderAutoPreview();
+        save();
+      });
+    });
+  }
+
+  function renderAutoPreview() {
+    const { totals, counts } = allocate(weights);
+    // update slider readouts: achieved vs solo-max
+    OPTION_TYPES.forEach((type) => {
+      const out = els.sliders.querySelector(`[data-out="${type}"]`);
+      if (!out) return;
+      const got = totals[type] || 0;
+      const max = soloMax(type);
+      out.innerHTML =
+        `<b>${fmtPct(got)}</b> <span style="opacity:.6">/ max ${fmtPct(max)}</span>`;
+    });
+
+    const tiles = OPTION_TYPES
+      .filter((t) => (totals[t] || 0) !== 0)
+      .sort((a, b) => Math.abs(totals[b]) - Math.abs(totals[a]))
+      .map(
+        (t) =>
+          `<div class="pv-tile"><div class="pv-t">${t}</div>` +
+          `<div class="pv-v">${fmtPct(totals[t])}</div>` +
+          `<div class="pv-sub">${counts[t]} milestone${counts[t] === 1 ? "" : "s"}</div></div>`
+      );
+
+    const totalPicks = OPTION_TYPES.reduce((s, t) => s + counts[t], 0);
+    els.autoPreview.innerHTML =
+      `<div class="pv-head">Preview — ${totalPicks} milestone pick(s) allocated. This does not change your build until you press Apply.</div>` +
+      (tiles.length ? `<div class="pv-grid">${tiles.join("")}</div>` : '<p class="empty">Raise a priority above 0 to allocate picks.</p>');
+  }
+
+  function renderPresets() {
+    els.presets.innerHTML = "";
+    Object.keys(PRESETS).forEach((name) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = name;
+      b.dataset.preset = name;
+      b.addEventListener("click", () => {
+        const preset = PRESETS[name];
+        weights = defaultWeights();
+        if (preset) {
+          OPTION_TYPES.forEach((t) => { weights[t] = 1; }); // non-favoured baseline
+          Object.keys(preset).forEach((t) => { if (t in weights) weights[t] = preset[t]; });
+        }
+        renderSliders();
+        renderAutoPreview();
+        markActivePreset();
+        save();
+      });
+      els.presets.appendChild(b);
+    });
+  }
+
+  function markActivePreset() {
+    els.presets.querySelectorAll("button").forEach((b) => {
+      const preset = PRESETS[b.dataset.preset];
+      let match;
+      if (preset === null) {
+        match = OPTION_TYPES.every((t) => weights[t] === DEFAULT_WEIGHT);
+      } else {
+        match = OPTION_TYPES.every((t) =>
+          (t in preset) ? weights[t] === preset[t] : weights[t] === 1
+        );
+      }
+      b.classList.toggle("active", match);
+    });
+  }
+
   function update() {
     medals = Math.max(0, Math.floor(Number(els.medals.value) || 0));
     renderReach();
     renderOptions();
     renderStatic();
     renderSummary();
+    renderAutoPreview();
     save();
   }
 
@@ -343,9 +533,43 @@
     offerCopy(summaryText());
   });
 
+  // tabs
+  els.tabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      els.tabs.forEach((t) => t.classList.toggle("active", t === tab));
+      const auto = tab.dataset.tab === "auto";
+      els.tabAuto.hidden = !auto;
+      els.tabManual.hidden = auto;
+      if (auto) renderAutoPreview();
+    });
+  });
+
+  els.applyAuto.addEventListener("click", () => {
+    const { picksMap, counts } = allocate(weights);
+    picks = picksMap;
+    update();
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    // jump to manual tab so the user can fine-tune the applied picks
+    els.tabs.forEach((t) => t.classList.toggle("active", t.dataset.tab === "manual"));
+    els.tabAuto.hidden = true;
+    els.tabManual.hidden = false;
+    showToast(`Applied ${total} auto-pick(s) — fine-tune them in Manual`);
+  });
+
+  els.resetWeights.addEventListener("click", () => {
+    weights = defaultWeights();
+    renderSliders();
+    renderAutoPreview();
+    markActivePreset();
+    save();
+  });
+
   // ---- init ----
   loadStorage();
   tryLoadFromHash(); // a shared link overrides stored state
   els.medals.value = medals || "";
+  renderPresets();
+  renderSliders();
+  markActivePreset();
   update();
 })();

@@ -36,10 +36,33 @@
         <h2>🎯 Milestone Options</h2>
         <span class="muted">Pick <strong>one</strong> option per unlocked milestone</span>
       </div>
-      <div class="card-actions">
-        <button type="button" id="clearPicks" class="ghost small">Clear all picks</button>
+
+      <div class="tabs" role="tablist">
+        <button type="button" class="tab active" data-tab="manual" role="tab">✋ Manual</button>
+        <button type="button" class="tab" data-tab="auto" role="tab">⚡ Auto-Pick by Priority</button>
       </div>
-      <div id="optionsList" class="options-list"></div>
+
+      <div id="tab-manual" class="tab-panel">
+        <div class="card-actions">
+          <button type="button" id="clearPicks" class="ghost small">Clear all picks</button>
+        </div>
+        <div id="optionsList" class="options-list"></div>
+      </div>
+
+      <div id="tab-auto" class="tab-panel" hidden>
+        <p class="hint">
+          Set how much you favor each debuff. Since every milestone only lets you pick
+          <strong>one</strong> option, raising one priority means the others reach less.
+          Drag the sliders, preview the result, then <strong>Apply</strong> to fill your picks.
+        </p>
+        <div class="presets" id="presets"></div>
+        <div id="sliders" class="sliders"></div>
+        <div class="auto-actions">
+          <button type="button" id="applyAuto" class="primary">Apply to my picks</button>
+          <button type="button" id="resetWeights" class="ghost small">Reset priorities</button>
+        </div>
+        <div id="autoPreview" class="auto-preview"></div>
+      </div>
     </section>
 
     <section class="card">
