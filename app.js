@@ -479,14 +479,17 @@
       row.dataset.stat = s;
       row.innerHTML =
         `<div class="a-top">` +
-        `<span class="a-name">${s}<span class="blk-tag" hidden>↓ reduce</span></span>` +
-        `<span class="a-read"></span></div>` +
-        `<div class="a-ctl">` +
+        `<span class="a-name">${s}` +
+        `<span class="a-steps">` +
         `<button type="button" class="a-step a-minus" aria-label="Decrease ${s}">−</button>` +
-        `<input type="range" min="0" step="5" />` +
         `<button type="button" class="a-step a-plus" aria-label="Increase ${s}">+</button>` +
-        `</div>` +
-        `<div class="a-bar"><span class="a-fill"></span><span class="a-room"></span><span class="a-short"></span></div>`;
+        `</span>` +
+        `<span class="blk-tag" hidden>↓ reduce</span>` +
+        `<span class="grow-tag" hidden>↑ room</span>` +
+        `</span>` +
+        `<span class="a-read"></span></div>` +
+        `<input type="range" min="0" step="5" />` +
+        `<div class="a-bar"><span class="a-fill"></span><span class="a-room"></span><span class="a-short"></span><span class="a-maxmark"></span></div>`;
       const input = row.querySelector("input");
       input.addEventListener("input", () => {
         allocTouched = true;
@@ -517,16 +520,20 @@
       const got = Math.abs(d.picked);
       const fillPct = (got / solo) * 100;
       const roomPct = (Math.max(0, d.softMax - got) / solo) * 100; // headroom you can still claim now
-      const shortPct = d.wanting ? (Math.max(0, d.target - d.softMax) / solo) * 100 : 0; // needs others freed
+      const shortPct = d.wanting ? (Math.max(0, d.target - d.softMax) / solo) * 100 : 0; // beyond max (red)
       row.querySelector(".a-fill").style.width = fillPct + "%";
       row.querySelector(".a-room").style.width = roomPct + "%";
       row.querySelector(".a-short").style.width = shortPct + "%";
+      row.querySelector(".a-maxmark").style.left = (d.softMax / solo) * 100 + "%"; // 2nd bar: sticks to real max
 
-      row.classList.toggle("blocker", blockers.has(s));
-      row.classList.toggle("wanting", d.wanting);
+      const isBlocker = blockers.has(s);
       const hasRoom = d.softMax - got > 1e-9;
-      row.classList.toggle("hasroom", hasRoom && !d.wanting);
-      row.querySelector(".blk-tag").hidden = !blockers.has(s);
+      const canGrow = hasRoom && !d.wanting && !isBlocker;
+      row.classList.toggle("blocker", isBlocker);
+      row.classList.toggle("wanting", d.wanting);
+      row.classList.toggle("cangrow", canGrow);
+      row.querySelector(".blk-tag").hidden = !isBlocker;
+      row.querySelector(".grow-tag").hidden = !canGrow;
 
       const capTxt =
         ` · <span class="a-cap">max ${fmtPct(-Math.round(d.softMax))}</span>` +

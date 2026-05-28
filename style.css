@@ -108,35 +108,39 @@ button.primary:hover { background: var(--accent); border-color: var(--accent); }
   background: var(--bg-2); transition: border-color .12s ease, box-shadow .12s ease;
 }
 .alloc-row.blocker { border-color: var(--warn); box-shadow: 0 0 0 1px var(--warn) inset; }
-.a-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 7px; flex-wrap: wrap; }
-.a-name { font-weight: 700; font-size: .92rem; }
-.a-name .blk-tag { color: var(--warn); font-size: .7rem; font-weight: 700; margin-left: 8px; text-transform: uppercase; letter-spacing: .04em; }
+.alloc-row.cangrow { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(52,211,153,.55) inset; }
+.a-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 7px; flex-wrap: wrap; }
+.a-name { font-weight: 700; font-size: .92rem; display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.a-name .blk-tag { color: var(--warn); font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.a-name .grow-tag { color: var(--accent); font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
 .a-read { font-size: .82rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .a-read .a-picked { font-weight: 800; color: var(--accent); }
 .alloc-row.wanting .a-picked { color: var(--warn); }
 .a-read .a-total { color: var(--text); font-weight: 700; }
 .a-read .a-cap { opacity: .65; }
-.a-ctl { display: flex; align-items: center; gap: 8px; margin: 2px 0 7px; }
-.a-ctl input[type="range"] { flex: 1; width: auto; accent-color: var(--accent); cursor: pointer; }
+.a-steps { display: inline-flex; gap: 4px; }
 .a-step {
-  flex: 0 0 auto; width: 34px; height: 34px; padding: 0;
-  font-size: 1.3rem; line-height: 1; font-weight: 700;
-  border-radius: 8px; border: 1px solid var(--line); background: var(--card-2); color: var(--text);
+  width: 26px; height: 26px; padding: 0;
+  font-size: 1.05rem; line-height: 1; font-weight: 700;
+  border-radius: 7px; border: 1px solid var(--line); background: var(--card-2); color: var(--text);
   display: flex; align-items: center; justify-content: center; touch-action: manipulation;
 }
 .a-step:hover { border-color: var(--accent); color: var(--accent); }
 .a-step:active { background: var(--accent-2); color: #06281b; }
-.alloc-row input[type="range"] { accent-color: var(--accent); cursor: pointer; }
-.a-bar { height: 7px; border-radius: 4px; background: var(--card); overflow: hidden; display: flex; }
+.alloc-row > input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; margin: 2px 0 7px; }
+.a-bar { position: relative; height: 8px; border-radius: 4px; background: var(--card); overflow: hidden; display: flex; }
 .a-fill { background: var(--accent); height: 100%; }
 /* headroom you can still claim right now (achieved → current max) */
 .a-room {
   height: 100%;
   background-image: repeating-linear-gradient(45deg, rgba(52,211,153,.45) 0 4px, rgba(52,211,153,.18) 4px 8px);
 }
-.a-short { background: var(--warn); height: 100%; opacity: .9; }
+.a-short { background: var(--warn); height: 100%; opacity: .95; }
+/* fixed marker at the real max — "2nd bar sticks to the real max" */
+.a-maxmark { position: absolute; top: -1px; bottom: -1px; width: 2px; background: #fff; opacity: .85; transform: translateX(-1px); }
 .a-read .a-cap { opacity: .85; }
-.alloc-row.hasroom .a-cap { color: var(--accent); opacity: 1; }
+.alloc-row.cangrow .a-cap { color: var(--accent); opacity: 1; }
+.alloc-row.cangrow .a-picked { color: var(--accent); }
 
 .alloc-summary { margin-top: 18px; font-size: .88rem; color: var(--muted); }
 .alloc-summary .as-grand { color: var(--accent); font-weight: 800; }
