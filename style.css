@@ -117,9 +117,16 @@ button.primary:hover { background: var(--accent); border-color: var(--accent); }
 .a-read .a-total { color: var(--text); font-weight: 700; }
 .a-read .a-cap { opacity: .65; }
 .alloc-row input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; margin: 2px 0 7px; }
-.a-bar { height: 6px; border-radius: 4px; background: var(--card); overflow: hidden; display: flex; }
+.a-bar { height: 7px; border-radius: 4px; background: var(--card); overflow: hidden; display: flex; }
 .a-fill { background: var(--accent); height: 100%; }
+/* headroom you can still claim right now (achieved → current max) */
+.a-room {
+  height: 100%;
+  background-image: repeating-linear-gradient(45deg, rgba(52,211,153,.45) 0 4px, rgba(52,211,153,.18) 4px 8px);
+}
 .a-short { background: var(--warn); height: 100%; opacity: .9; }
+.a-read .a-cap { opacity: .85; }
+.alloc-row.hasroom .a-cap { color: var(--accent); opacity: 1; }
 
 .alloc-summary { margin-top: 18px; font-size: .88rem; color: var(--muted); }
 .alloc-summary .as-grand { color: var(--accent); font-weight: 800; }

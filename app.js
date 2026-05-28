@@ -429,7 +429,7 @@
         `<span class="a-name">${s}<span class="blk-tag" hidden>↓ reduce</span></span>` +
         `<span class="a-read"></span></div>` +
         `<input type="range" min="0" step="5" />` +
-        `<div class="a-bar"><span class="a-fill"></span><span class="a-short"></span></div>`;
+        `<div class="a-bar"><span class="a-fill"></span><span class="a-room"></span><span class="a-short"></span></div>`;
       const input = row.querySelector("input");
       input.addEventListener("input", () => {
         allocTouched = true;
@@ -455,18 +455,23 @@
       input.max = d.solo;
       if (document.activeElement !== input) input.value = d.target;
 
-      const fillPct = (Math.abs(d.picked) / solo) * 100;
-      const shortPct = d.wanting ? (Math.max(0, d.target - Math.abs(d.picked)) / solo) * 100 : 0;
+      const got = Math.abs(d.picked);
+      const fillPct = (got / solo) * 100;
+      const roomPct = (Math.max(0, d.softMax - got) / solo) * 100; // headroom you can still claim now
+      const shortPct = d.wanting ? (Math.max(0, d.target - d.softMax) / solo) * 100 : 0; // needs others freed
       row.querySelector(".a-fill").style.width = fillPct + "%";
+      row.querySelector(".a-room").style.width = roomPct + "%";
       row.querySelector(".a-short").style.width = shortPct + "%";
 
       row.classList.toggle("blocker", blockers.has(s));
       row.classList.toggle("wanting", d.wanting);
+      const hasRoom = d.softMax - got > 1e-9;
+      row.classList.toggle("hasroom", hasRoom && !d.wanting);
       row.querySelector(".blk-tag").hidden = !blockers.has(s);
 
-      const capTxt = d.wanting
-        ? ` · <span class="redword">wants ${fmtPct(-d.target)}</span>`
-        : ` · <span class="a-cap">max ${fmtPct(-Math.round(d.softMax))}</span>`;
+      const capTxt =
+        ` · <span class="a-cap">max ${fmtPct(-Math.round(d.softMax))}</span>` +
+        (d.wanting ? ` · <span class="redword">wants ${fmtPct(-d.target)}</span>` : "");
       row.querySelector(".a-read").innerHTML =
         `picked <span class="a-picked">${fmtPct(d.picked)}</span> · ` +
         `total <span class="a-total">${fmtPct(d.total)}</span>${capTxt}`;
