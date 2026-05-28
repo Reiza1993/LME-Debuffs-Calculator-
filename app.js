@@ -24,15 +24,14 @@
     tabs: document.querySelectorAll(".tab"),
     tabManual: document.getElementById("tab-manual"),
     tabAuto: document.getElementById("tab-auto"),
-    sliders: document.getElementById("sliders"),
-    presets: document.getElementById("presets"),
+    allocList: document.getElementById("allocList"),
+    allocSummary: document.getElementById("allocSummary"),
+    balanceBtn: document.getElementById("balanceBtn"),
+    clearAllocBtn: document.getElementById("clearAllocBtn"),
     applyAuto: document.getElementById("applyAuto"),
-    resetWeights: document.getElementById("resetWeights"),
-    autoPreview: document.getElementById("autoPreview"),
   };
 
-  // Debuff types that can appear as milestone options, ordered with the main
-  // damage debuffs first. Used for the Auto-Pick priority sliders.
+  // Debuff types that appear as milestone options, main damage debuffs first.
   const PRIORITY_ORDER = [
     "Crit Rate", "Crit Damage", "Weakened", "Chill",
     "Poison", "Shield", "Laceration", "Skill",
@@ -45,45 +44,26 @@
     [...set].forEach((t) => { if (!ordered.includes(t)) ordered.push(t); });
     return ordered;
   })();
-  const DEFAULT_WEIGHT = 5;
-  const MAX_WEIGHT = 10;
-
-  const PRESETS = {
-    "Balanced": null, // null = every type at DEFAULT_WEIGHT
-    "Crit Focus": { "Crit Rate": 10, "Crit Damage": 10 },
-    "Skill Nuke": { "Skill": 10, "Crit Damage": 8 },
-    "Control": { "Chill": 10, "Poison": 9, "Weakened": 8 },
-    "Defense Shred": { "Shield": 10, "Vulnerability": 9 },
-  };
 
   // ---- state ----
   let medals = 0;
-  let picks = {}; // milestone -> selected option index (number) or "skip"
-  let weights = {}; // type -> priority 0..MAX_WEIGHT
-
-  function defaultWeights() {
-    const w = {};
-    OPTION_TYPES.forEach((t) => { w[t] = DEFAULT_WEIGHT; });
-    return w;
-  }
+  let picks = {};   // milestone -> selected option index (number) or "skip"
+  let target = {};  // stat -> desired total magnitude (%) from the allocation tab
+  let assign = {};  // milestone -> option index, the allocation-tab assignment
+  let allocTouched = false; // once the user edits the allocation, stop auto-balancing
 
   function loadStorage() {
     try {
       const s = JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
       medals = Number(s.medals) || 0;
       picks = s.picks && typeof s.picks === "object" ? s.picks : {};
-      weights = defaultWeights();
-      if (s.weights && typeof s.weights === "object") {
-        OPTION_TYPES.forEach((t) => {
-          if (typeof s.weights[t] === "number") weights[t] = s.weights[t];
-        });
-      }
-    } catch (e) {
-      weights = defaultWeights();
-    }
+      target = s.target && typeof s.target === "object" ? s.target : {};
+      assign = s.assign && typeof s.assign === "object" ? s.assign : {};
+      allocTouched = !!s.allocTouched;
+    } catch (e) { /* ignore */ }
   }
   function save() {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ medals, picks, weights }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({ medals, picks, target, assign, allocTouched }));
   }
 
   const fmtPct = (n) => (n > 0 ? "+" : "") + n + "%";
@@ -178,7 +158,6 @@
     });
   }
 
-  // After picking, scroll the options list to the next milestone block.
   function scrollToNextMilestone(currentMs) {
     const list = DATA.options
       .filter((o) => o.milestone <= medals)
@@ -192,8 +171,7 @@
     if (!el) return;
     const top =
       container.scrollTop +
-      (el.getBoundingClientRect().top - container.getBoundingClientRect().top) -
-      8;
+      (el.getBoundingClientRect().top - container.getBoundingClientRect().top) - 8;
     container.scrollTo({ top, behavior: "smooth" });
   }
 
@@ -263,154 +241,265 @@
     els.reachInfo.innerHTML = txt;
   }
 
-  // ---- auto-pick by priority ----
-  // Allocate each unlocked milestone to one of its option types using the
-  // divisor (Jefferson/D'Hondt) method, so a type with priority 8 wins roughly
-  // twice as many contested milestones as one with priority 4. Maxing one type
-  // therefore starves the others. Returns picks map + per-type totals/counts.
-  function allocate(w) {
-    const counts = {};
-    const totals = {};
-    const picksMap = {};
-    OPTION_TYPES.forEach((t) => { counts[t] = 0; totals[t] = 0; });
+  // =========================================================================
+  //  ALLOCATION TAB — sliders measured in total % picked per debuff type
+  // =========================================================================
+  const unlockedRows = () => DATA.options.filter((o) => o.milestone <= medals);
 
-    DATA.options
-      .filter((o) => o.milestone <= medals)
-      .sort((a, b) => a.milestone - b.milestone)
+  // Best (most negative) option index for a given stat within a milestone row.
+  function offerIndex(row, stat) {
+    let best = -1, bestPct = 0;
+    row.options.forEach((o, i) => {
+      if (o.type === stat && (best < 0 || o.pct < bestPct)) { best = i; bestPct = o.pct; }
+    });
+    return best;
+  }
+
+  // Picked % per stat from the current `assign`.
+  function pickedByStat() {
+    const t = {};
+    OPTION_TYPES.forEach((s) => { t[s] = 0; });
+    unlockedRows().forEach((row) => {
+      const oi = assign[row.milestone];
+      if (oi != null && row.options[oi]) t[row.options[oi].type] += row.options[oi].pct;
+    });
+    return t;
+  }
+
+  // Fixed static % per stat (excludes flat Defense and special unlocks).
+  function staticByStat() {
+    const t = {};
+    DATA.static.filter((s) => s.milestone <= medals).forEach((s) => {
+      if (SPECIAL_TYPES.has(s.type) || FLAT_TYPES.has(s.type)) return;
+      t[s.type] = (t[s.type] || 0) + s.value;
+    });
+    return t;
+  }
+
+  // Absolute ceiling: % if this stat claimed the best option in every milestone
+  // that offers it (ignoring all other stats).
+  function soloMax(stat) {
+    let total = 0;
+    unlockedRows().forEach((row) => {
+      const i = offerIndex(row, stat);
+      if (i >= 0) total += row.options[i].pct;
+    });
+    return Math.abs(total);
+  }
+
+  // Balanced seed: spread picks evenly using an equal-weight divisor method.
+  function balancedAlloc() {
+    const counts = {};
+    OPTION_TYPES.forEach((s) => { counts[s] = 0; });
+    const a = {};
+    unlockedRows()
+      .slice()
+      .sort((x, y) => x.milestone - y.milestone)
       .forEach((row) => {
         let best = null;
         row.options.forEach((opt, idx) => {
-          const weight = w[opt.type] || 0;
-          if (weight <= 0) return;
-          const quotient = weight / (counts[opt.type] + 1);
+          const q = 1 / (counts[opt.type] + 1);
           if (
-            !best ||
-            quotient > best.quotient + 1e-9 ||
-            (Math.abs(quotient - best.quotient) < 1e-9 &&
-              Math.abs(opt.pct) > Math.abs(best.opt.pct))
+            !best || q > best.q + 1e-9 ||
+            (Math.abs(q - best.q) < 1e-9 && Math.abs(opt.pct) > Math.abs(best.opt.pct))
           ) {
-            best = { idx, opt, quotient };
+            best = { idx, opt, q };
           }
         });
-        if (best) {
-          picksMap[row.milestone] = best.idx;
-          counts[best.opt.type] += 1;
-          totals[best.opt.type] += best.opt.pct;
-        }
+        if (best) { a[row.milestone] = best.idx; counts[best.opt.type] += 1; }
       });
-
-    return { picksMap, counts, totals };
+    return a;
   }
 
-  // Max % a type could reach if it had absolute priority everywhere it appears.
-  function soloMax(type) {
-    let total = 0;
-    DATA.options
-      .filter((o) => o.milestone <= medals)
-      .forEach((row) => {
-        const matches = row.options.filter((o) => o.type === type);
-        if (matches.length) {
-          total += Math.min(...matches.map((o) => o.pct)); // most negative
-        }
-      });
-    return total;
+  function initBalanced() {
+    assign = balancedAlloc();
+    const picked = pickedByStat();
+    target = {};
+    OPTION_TYPES.forEach((s) => { target[s] = Math.abs(picked[s]); });
   }
 
-  function renderSliders() {
-    els.sliders.innerHTML = "";
-    OPTION_TYPES.forEach((type) => {
-      const row = document.createElement("div");
-      row.className = "slider-row" + (weights[type] === 0 ? " zero" : "");
-      row.innerHTML =
-        `<span class="s-name">${type}</span>` +
-        `<input type="range" min="0" max="${MAX_WEIGHT}" step="1" value="${weights[type]}" data-type="${type}" />` +
-        `<span class="s-out" data-out="${type}"></span>`;
-      els.sliders.appendChild(row);
-    });
-    els.sliders.querySelectorAll('input[type="range"]').forEach((inp) => {
-      inp.addEventListener("input", () => {
-        weights[inp.dataset.type] = Number(inp.value);
-        inp.closest(".slider-row").classList.toggle("zero", Number(inp.value) === 0);
-        markActivePreset();
-        renderAutoPreview();
-        save();
-      });
-    });
-  }
-
-  function renderAutoPreview() {
-    const { totals, counts } = allocate(weights);
-    // update slider readouts: achieved vs solo-max
-    OPTION_TYPES.forEach((type) => {
-      const out = els.sliders.querySelector(`[data-out="${type}"]`);
-      if (!out) return;
-      const got = totals[type] || 0;
-      const max = soloMax(type);
-      out.innerHTML =
-        `<b>${fmtPct(got)}</b> <span style="opacity:.6">/ max ${fmtPct(max)}</span>`;
+  // Re-derive a feasible assignment from the user's `target` wishes.
+  // Releases over-target picks, then fills unmet stats from the free pool
+  // (never stealing from a satisfied stat — that's what the red flags are for).
+  function normalize() {
+    // ensure every type has a target and assign is within unlocked range
+    Object.keys(assign).forEach((ms) => { if (Number(ms) > medals) delete assign[ms]; });
+    OPTION_TYPES.forEach((s) => {
+      if (typeof target[s] !== "number") target[s] = Math.abs(pickedByStat()[s]);
+      target[s] = Math.max(0, Math.min(target[s], soloMax(s)));
     });
 
-    const tiles = OPTION_TYPES
-      .filter((t) => (totals[t] || 0) !== 0)
-      .sort((a, b) => Math.abs(totals[b]) - Math.abs(totals[a]))
-      .map(
-        (t) =>
-          `<div class="pv-tile"><div class="pv-t">${t}</div>` +
-          `<div class="pv-v">${fmtPct(totals[t])}</div>` +
-          `<div class="pv-sub">${counts[t]} milestone${counts[t] === 1 ? "" : "s"}</div></div>`
-      );
-
-    const totalPicks = OPTION_TYPES.reduce((s, t) => s + counts[t], 0);
-    els.autoPreview.innerHTML =
-      `<div class="pv-head">Preview — ${totalPicks} milestone pick(s) allocated. This does not change your build until you press Apply.</div>` +
-      (tiles.length ? `<div class="pv-grid">${tiles.join("")}</div>` : '<p class="empty">Raise a priority above 0 to allocate picks.</p>');
-  }
-
-  function renderPresets() {
-    els.presets.innerHTML = "";
-    Object.keys(PRESETS).forEach((name) => {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.textContent = name;
-      b.dataset.preset = name;
-      b.addEventListener("click", () => {
-        const preset = PRESETS[name];
-        weights = defaultWeights();
-        if (preset) {
-          OPTION_TYPES.forEach((t) => { weights[t] = 1; }); // non-favoured baseline
-          Object.keys(preset).forEach((t) => { if (t in weights) weights[t] = preset[t]; });
-        }
-        renderSliders();
-        renderAutoPreview();
-        markActivePreset();
-        save();
-      });
-      els.presets.appendChild(b);
-    });
-  }
-
-  function markActivePreset() {
-    els.presets.querySelectorAll("button").forEach((b) => {
-      const preset = PRESETS[b.dataset.preset];
-      let match;
-      if (preset === null) {
-        match = OPTION_TYPES.every((t) => weights[t] === DEFAULT_WEIGHT);
-      } else {
-        match = OPTION_TYPES.every((t) =>
-          (t in preset) ? weights[t] === preset[t] : weights[t] === 1
-        );
+    // 1) release where we hold more than the target (drop smallest chunks first)
+    OPTION_TYPES.forEach((s) => {
+      let picked = Math.abs(pickedByStat()[s]);
+      if (picked <= target[s] + 1e-9) return;
+      const mine = unlockedRows()
+        .filter((r) => assign[r.milestone] != null && r.options[assign[r.milestone]].type === s)
+        .sort((a, b) => Math.abs(a.options[assign[a.milestone]].pct) - Math.abs(b.options[assign[b.milestone]].pct));
+      for (const r of mine) {
+        if (picked <= target[s] + 1e-9) break;
+        picked -= Math.abs(r.options[assign[r.milestone]].pct);
+        delete assign[r.milestone];
       }
-      b.classList.toggle("active", match);
     });
+
+    // 2) fill unmet stats from currently-unassigned milestones (no overshoot)
+    let progress = true;
+    let guard = 0;
+    while (progress && guard++ < 5000) {
+      progress = false;
+      const picked = pickedByStat();
+      const unmet = OPTION_TYPES
+        .map((s) => ({ s, deficit: target[s] - Math.abs(picked[s]) }))
+        .filter((x) => x.deficit > 1e-9)
+        .sort((a, b) => b.deficit - a.deficit);
+      for (const { s, deficit } of unmet) {
+        const cand = unlockedRows()
+          .filter((r) => assign[r.milestone] == null && offerIndex(r, s) >= 0)
+          .map((r) => ({ r, oi: offerIndex(r, s), mag: Math.abs(r.options[offerIndex(r, s)].pct) }))
+          .filter((c) => c.mag <= deficit + 1e-9)
+          .sort((a, b) => b.mag - a.mag);
+        if (cand.length) { assign[cand[0].r.milestone] = cand[0].oi; progress = true; break; }
+      }
+    }
   }
 
+  // Returns achieved %, dynamic max, and which stats block each unmet stat.
+  function allocState() {
+    const picked = pickedByStat();
+    const stat = staticByStat();
+    const free = unlockedRows().filter((r) => assign[r.milestone] == null);
+
+    const rows = {};
+    const blockers = new Set();
+    OPTION_TYPES.forEach((s) => {
+      const got = Math.abs(picked[s]);
+      const freeForS = free.reduce((sum, r) => {
+        const i = offerIndex(r, s);
+        return i >= 0 ? sum + Math.abs(r.options[i].pct) : sum;
+      }, 0);
+      const softMax = got + freeForS; // reachable now without touching others
+      const deficit = target[s] - got;
+      const wanting = deficit > 1e-9;
+
+      // stats currently holding a milestone that could serve S (and fits the gap)
+      const holders = new Set();
+      if (wanting) {
+        unlockedRows().forEach((r) => {
+          const oi = assign[r.milestone];
+          if (oi == null) return;
+          const held = r.options[oi].type;
+          if (held === s) return;
+          const i = offerIndex(r, s);
+          if (i >= 0 && Math.abs(r.options[i].pct) <= deficit + 1e-9) holders.add(held);
+        });
+      }
+      const realWant = wanting && holders.size > 0;
+      if (realWant) holders.forEach((h) => blockers.add(h));
+
+      rows[s] = {
+        picked: -got,
+        total: -(got + Math.abs(stat[s] || 0)),
+        target: realWant ? target[s] : got, // snap target to reality unless genuinely blocked
+        softMax,
+        solo: soloMax(s),
+        wanting: realWant,
+        holders: [...holders],
+      };
+      if (!realWant) target[s] = got; // keep slider honest when nothing is blocking
+    });
+
+    return { rows, blockers, freeCount: free.length };
+  }
+
+  function renderAllocList() {
+    els.allocList.innerHTML = "";
+    const stats = OPTION_TYPES.filter((s) => soloMax(s) > 0);
+    if (!stats.length) {
+      els.allocList.innerHTML = '<p class="empty">No option milestones unlocked yet — raise your medals.</p>';
+      els.allocSummary.innerHTML = "";
+      return;
+    }
+    stats.forEach((s) => {
+      const row = document.createElement("div");
+      row.className = "alloc-row";
+      row.dataset.stat = s;
+      row.innerHTML =
+        `<div class="a-top">` +
+        `<span class="a-name">${s}<span class="blk-tag" hidden>↓ reduce</span></span>` +
+        `<span class="a-read"></span></div>` +
+        `<input type="range" min="0" step="5" />` +
+        `<div class="a-bar"><span class="a-fill"></span><span class="a-short"></span></div>`;
+      const input = row.querySelector("input");
+      input.addEventListener("input", () => {
+        allocTouched = true;
+        target[s] = Number(input.value);
+        normalize();
+        refreshAlloc();
+        save();
+      });
+      els.allocList.appendChild(row);
+    });
+    refreshAlloc();
+  }
+
+  // Update dynamic parts without rebuilding inputs (keeps drag smooth).
+  function refreshAlloc() {
+    const { rows, blockers, freeCount } = allocState();
+    els.allocList.querySelectorAll(".alloc-row").forEach((row) => {
+      const s = row.dataset.stat;
+      const d = rows[s];
+      if (!d) return;
+      const input = row.querySelector("input");
+      const solo = Math.max(1, d.solo);
+      input.max = d.solo;
+      if (document.activeElement !== input) input.value = d.target;
+
+      const fillPct = (Math.abs(d.picked) / solo) * 100;
+      const shortPct = d.wanting ? (Math.max(0, d.target - Math.abs(d.picked)) / solo) * 100 : 0;
+      row.querySelector(".a-fill").style.width = fillPct + "%";
+      row.querySelector(".a-short").style.width = shortPct + "%";
+
+      row.classList.toggle("blocker", blockers.has(s));
+      row.classList.toggle("wanting", d.wanting);
+      row.querySelector(".blk-tag").hidden = !blockers.has(s);
+
+      const capTxt = d.wanting
+        ? ` · <span class="redword">wants ${fmtPct(-d.target)}</span>`
+        : ` · <span class="a-cap">max ${fmtPct(-Math.round(d.softMax))}</span>`;
+      row.querySelector(".a-read").innerHTML =
+        `picked <span class="a-picked">${fmtPct(d.picked)}</span> · ` +
+        `total <span class="a-total">${fmtPct(d.total)}</span>${capTxt}`;
+    });
+
+    // summary line
+    const used = Object.keys(assign).length;
+    const blockerNames = [...blockers];
+    let msg =
+      `<span class="as-grand">${used}</span> milestone pick(s) allocated` +
+      (freeCount ? `, <strong>${freeCount}</strong> still free` : "") + ".";
+    if (blockerNames.length) {
+      msg += ` <span class="as-warn">Reduce ${blockerNames.join(", ")}</span> to free milestones for the red-marked goals.`;
+    }
+    msg += " Press Apply to load these into your picks.";
+    els.allocSummary.innerHTML = msg;
+  }
+
+  // Until the user edits the allocation, keep it balanced for the current medals.
+  function ensureAlloc() {
+    if (!allocTouched) initBalanced();
+    normalize();
+  }
+
+  // ---- main render ----
   function update() {
     medals = Math.max(0, Math.floor(Number(els.medals.value) || 0));
     renderReach();
     renderOptions();
     renderStatic();
     renderSummary();
-    renderAutoPreview();
+    ensureAlloc();
+    renderAllocList();
     save();
   }
 
@@ -435,14 +524,12 @@
     return base + "#" + encodeState();
   }
 
-  // Try the async Clipboard API, fall back to execCommand on the visible field.
   function copyText(text) {
     if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext) {
       return navigator.clipboard.writeText(text);
     }
     return Promise.reject(new Error("clipboard-unavailable"));
   }
-
   function legacyCopy() {
     try {
       els.shareText.focus();
@@ -453,8 +540,6 @@
       return false;
     }
   }
-
-  // Show the text in a selectable field and try to copy it to the clipboard.
   function offerCopy(text) {
     els.shareOut.hidden = false;
     els.shareText.value = text;
@@ -540,36 +625,37 @@
       const auto = tab.dataset.tab === "auto";
       els.tabAuto.hidden = !auto;
       els.tabManual.hidden = auto;
-      if (auto) renderAutoPreview();
+      if (auto) { ensureAlloc(); renderAllocList(); }
     });
   });
 
+  els.balanceBtn.addEventListener("click", () => {
+    allocTouched = false; // let it re-balance and keep tracking medals
+    initBalanced();
+    renderAllocList();
+    save();
+  });
+  els.clearAllocBtn.addEventListener("click", () => {
+    allocTouched = true;
+    assign = {};
+    OPTION_TYPES.forEach((s) => { target[s] = 0; });
+    renderAllocList();
+    save();
+  });
   els.applyAuto.addEventListener("click", () => {
-    const { picksMap, counts } = allocate(weights);
-    picks = picksMap;
+    ensureAlloc();
+    picks = {};
+    Object.keys(assign).forEach((ms) => { picks[ms] = assign[ms]; });
     update();
-    const total = Object.values(counts).reduce((a, b) => a + b, 0);
-    // jump to manual tab so the user can fine-tune the applied picks
     els.tabs.forEach((t) => t.classList.toggle("active", t.dataset.tab === "manual"));
     els.tabAuto.hidden = true;
     els.tabManual.hidden = false;
-    showToast(`Applied ${total} auto-pick(s) — fine-tune them in Manual`);
-  });
-
-  els.resetWeights.addEventListener("click", () => {
-    weights = defaultWeights();
-    renderSliders();
-    renderAutoPreview();
-    markActivePreset();
-    save();
+    showToast(`Applied ${Object.keys(assign).length} pick(s) — fine-tune in Manual`);
   });
 
   // ---- init ----
   loadStorage();
   tryLoadFromHash(); // a shared link overrides stored state
   els.medals.value = medals || "";
-  renderPresets();
-  renderSliders();
-  markActivePreset();
   update();
 })();

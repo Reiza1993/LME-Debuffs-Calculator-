@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Survivor.io — Clan Leader Debuff Calculator</title>
-<link rel="stylesheet" href="style.css?v=20260528" />
+<link rel="stylesheet" href="style.css?v=20260528b" />
 </head>
 <body>
 <div class="app">
@@ -51,17 +51,20 @@
 
       <div id="tab-auto" class="tab-panel" hidden>
         <p class="hint">
-          Set how much you favor each debuff. Since every milestone only lets you pick
-          <strong>one</strong> option, raising one priority means the others reach less.
-          Drag the sliders, preview the result, then <strong>Apply</strong> to fill your picks.
+          Each slider is the <strong>total % picked</strong> for that debuff (the second
+          number adds the fixed static %). Every milestone is a single choice, so debuffs
+          share one limited pool — raising one lowers how far the others can reach.
+          Drag a slider up to its current <em>max</em>; to push past it, lower a stat shown
+          in <span class="redword">red</span> to free up milestones. Then press
+          <strong>Apply</strong> to fill your picks.
         </p>
-        <div class="presets" id="presets"></div>
-        <div id="sliders" class="sliders"></div>
-        <div class="auto-actions">
+        <div class="alloc-actions">
+          <button type="button" id="balanceBtn" class="ghost small">Reset to balanced</button>
+          <button type="button" id="clearAllocBtn" class="ghost small">Clear all</button>
           <button type="button" id="applyAuto" class="primary">Apply to my picks</button>
-          <button type="button" id="resetWeights" class="ghost small">Reset priorities</button>
         </div>
-        <div id="autoPreview" class="auto-preview"></div>
+        <div id="allocList" class="alloc-list"></div>
+        <div id="allocSummary" class="alloc-summary"></div>
       </div>
     </section>
 
@@ -97,7 +100,7 @@
   </footer>
 </div>
 
-<script src="data.js?v=20260528"></script>
-<script src="app.js?v=20260528"></script>
+<script src="data.js?v=20260528b"></script>
+<script src="app.js?v=20260528b"></script>
 </body>
 </html>
