@@ -2,7 +2,7 @@
   "use strict";
 
   const DATA = window.LME_DATA || { options: [], static: [] };
-  const SPECIAL_TYPES = new Set(["Supreme Arcanum HP", "Supreme Boss", "Sentinal HP"]);
+  const SPECIAL_TYPES = new Set(["Supreme Arcanum HP"]);
   const FLAT_TYPES = new Set(["Defense"]);
   const STORE_KEY = "lme_debuff_state_v1";
 
@@ -15,13 +15,16 @@
     summary: document.getElementById("summary"),
     special: document.getElementById("specialUnlocks"),
     clearPicks: document.getElementById("clearPicks"),
+    copyLink: document.getElementById("copyLink"),
+    copySummary: document.getElementById("copySummary"),
+    toast: document.getElementById("toast"),
   };
 
   // ---- state ----
   let medals = 0;
-  let picks = {}; // milestone -> selected option index
+  let picks = {}; // milestone -> selected option index (number) or "skip"
 
-  function load() {
+  function loadStorage() {
     try {
       const s = JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
       medals = Number(s.medals) || 0;
@@ -34,6 +37,38 @@
 
   const fmtPct = (n) => (n > 0 ? "+" : "") + n + "%";
   const fmtNum = (n) => n.toLocaleString("en-US");
+
+  // ---- shared totals computation ----
+  function computeTotals() {
+    const pct = {};   // type -> { total, picked, static }
+    const flat = {};  // type -> total
+    const unlocks = []; // labels
+
+    function addPct(type, v, src) {
+      if (!pct[type]) pct[type] = { total: 0, picked: 0, static: 0 };
+      pct[type].total += v;
+      pct[type][src] += v;
+    }
+
+    DATA.options
+      .filter((o) => o.milestone <= medals)
+      .forEach((row) => {
+        const sel = picks[row.milestone];
+        if (typeof sel === "number" && row.options[sel]) {
+          addPct(row.options[sel].type, row.options[sel].pct, "picked");
+        }
+      });
+
+    DATA.static
+      .filter((s) => s.milestone <= medals)
+      .forEach((s) => {
+        if (SPECIAL_TYPES.has(s.type)) { unlocks.push(s.label); return; }
+        if (FLAT_TYPES.has(s.type)) { flat[s.type] = (flat[s.type] || 0) + s.value; return; }
+        addPct(s.type, s.value, "static");
+      });
+
+    return { pct, flat, unlocks };
+  }
 
   // ---- render: milestone options ----
   function renderOptions() {
@@ -49,6 +84,7 @@
     unlocked.forEach((row) => {
       const block = document.createElement("div");
       block.className = "ms-block";
+      block.dataset.ms = row.milestone;
 
       const head = document.createElement("div");
       head.className = "ms-head";
@@ -75,15 +111,39 @@
         el.className = "opt" + (picks[row.milestone] === i ? " selected" : "");
         el.innerHTML = `<span class="ty">${opt.type}</span><span class="pc">${fmtPct(opt.pct)}</span>`;
         el.addEventListener("click", () => {
-          picks[row.milestone] = picks[row.milestone] === i ? undefined : i;
-          if (picks[row.milestone] === undefined) delete picks[row.milestone];
+          const wasSelected = picks[row.milestone] === i;
+          if (wasSelected) {
+            delete picks[row.milestone];
+          } else {
+            picks[row.milestone] = i;
+          }
           update();
+          if (!wasSelected) scrollToNextMilestone(row.milestone);
         });
         optRow.appendChild(el);
       });
       block.appendChild(optRow);
       els.optionsList.appendChild(block);
     });
+  }
+
+  // After picking, scroll the options list to the next milestone block.
+  function scrollToNextMilestone(currentMs) {
+    const list = DATA.options
+      .filter((o) => o.milestone <= medals)
+      .map((o) => o.milestone)
+      .sort((a, b) => a - b);
+    const idx = list.indexOf(currentMs);
+    const next = list[idx + 1];
+    if (next == null) return;
+    const container = els.optionsList;
+    const el = container.querySelector(`[data-ms="${next}"]`);
+    if (!el) return;
+    const top =
+      container.scrollTop +
+      (el.getBoundingClientRect().top - container.getBoundingClientRect().top) -
+      8;
+    container.scrollTo({ top, behavior: "smooth" });
   }
 
   // ---- render: static milestones ----
@@ -112,38 +172,9 @@
 
   // ---- render: summary ----
   function renderSummary() {
-    const pct = {};   // type -> { total, picked, static }
-    const flat = {};  // type -> total
-    const unlocks = new Set();
-
-    function addPct(type, v, src) {
-      if (!pct[type]) pct[type] = { total: 0, picked: 0, static: 0 };
-      pct[type].total += v;
-      pct[type][src] += v;
-    }
-
-    // picked options
-    DATA.options
-      .filter((o) => o.milestone <= medals)
-      .forEach((row) => {
-        const sel = picks[row.milestone];
-        if (typeof sel === "number" && row.options[sel]) {
-          const opt = row.options[sel];
-          addPct(opt.type, opt.pct, "picked");
-        }
-      });
-
-    // static
-    DATA.static
-      .filter((s) => s.milestone <= medals)
-      .forEach((s) => {
-        if (SPECIAL_TYPES.has(s.type)) { unlocks.add(s.type); return; }
-        if (FLAT_TYPES.has(s.type)) { flat[s.type] = (flat[s.type] || 0) + s.value; return; }
-        addPct(s.type, s.value, "static");
-      });
-
-    // build tiles, percentage types sorted by magnitude desc
+    const { pct, flat, unlocks } = computeTotals();
     const tiles = [];
+
     Object.keys(pct)
       .sort((a, b) => Math.abs(pct[b].total) - Math.abs(pct[a].total))
       .forEach((type) => {
@@ -167,7 +198,7 @@
       ? tiles.join("")
       : '<p class="empty">Nothing selected yet — pick options and/or raise your medals.</p>';
 
-    els.special.innerHTML = [...unlocks]
+    els.special.innerHTML = unlocks
       .map((u) => `<span class="unlock-chip">🔓 ${u}</span>`)
       .join("");
   }
@@ -190,6 +221,79 @@
     save();
   }
 
+  // ---- share / export ----
+  function encodeState() {
+    return "s=" + btoa(JSON.stringify({ m: medals, p: picks }));
+  }
+  function tryLoadFromHash() {
+    const h = (location.hash || "").replace(/^#/, "");
+    if (!h.startsWith("s=")) return false;
+    try {
+      const obj = JSON.parse(atob(h.slice(2)));
+      medals = Number(obj.m) || 0;
+      picks = obj.p && typeof obj.p === "object" ? obj.p : {};
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+  function shareUrl() {
+    return location.origin + location.pathname + "#" + encodeState();
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise((resolve, reject) => {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        resolve();
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  let toastTimer = null;
+  function showToast(msg) {
+    els.toast.textContent = msg;
+    els.toast.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => els.toast.classList.remove("show"), 2200);
+  }
+
+  function summaryText() {
+    const { pct, flat, unlocks } = computeTotals();
+    const lines = [];
+    lines.push(`Survivor.io LME Debuffs — ${fmtNum(medals)} Testament Medals`);
+    lines.push("");
+    lines.push("Total debuff by type:");
+    const ordered = Object.keys(pct).sort(
+      (a, b) => Math.abs(pct[b].total) - Math.abs(pct[a].total)
+    );
+    if (ordered.length) {
+      ordered.forEach((t) => lines.push(`  ${t}: ${fmtPct(pct[t].total)}`));
+    } else {
+      lines.push("  (none)");
+    }
+    Object.keys(flat).forEach((t) => lines.push(`  ${t} (flat): ${fmtNum(flat[t])}`));
+    if (unlocks.length) {
+      lines.push("");
+      lines.push("Unlocked: " + unlocks.join(", "));
+    }
+    lines.push("");
+    lines.push("Open this build: " + shareUrl());
+    return lines.join("\n");
+  }
+
   // ---- events ----
   els.medals.addEventListener("input", update);
   els.maxBtn.addEventListener("click", () => {
@@ -210,9 +314,24 @@
     picks = {};
     update();
   });
+  els.copyLink.addEventListener("click", () => {
+    const url = shareUrl();
+    history.replaceState(null, "", "#" + encodeState());
+    copyText(url).then(
+      () => showToast("Share link copied!"),
+      () => showToast("Copy failed — link in address bar")
+    );
+  });
+  els.copySummary.addEventListener("click", () => {
+    copyText(summaryText()).then(
+      () => showToast("Summary copied!"),
+      () => showToast("Copy failed")
+    );
+  });
 
   // ---- init ----
-  load();
+  loadStorage();
+  tryLoadFromHash(); // a shared link overrides stored state
   els.medals.value = medals || "";
   update();
 })();
