@@ -12,14 +12,16 @@ Enter the Testament Medals your clan has achieved, and the page shows:
 1. **Milestone Options** — the higher your medals, the more milestones unlock.
    Each unlocked milestone lets leaders pick **one** of several debuff options.
    - **Manual** tab: pick each milestone yourself.
-   - **Auto-Pick by Priority** tab: one slider per debuff type, measured in the
-     **actual total % picked** (with a second figure that adds the fixed static
-     %). It starts from a balanced spread. Because every milestone is a single
-     choice, the debuffs share one limited pool — each slider's *max* is how far
-     it can go using only milestones the others aren't already using. Lower one
-     debuff and the others' maxes rise. If you push a slider past its max, the
-     stats holding the milestones it needs are flagged **red** so you know which
-     to reduce. **Apply** loads the allocation into your picks for fine-tuning.
+   - **Pick Up Slider** tab: one slider (with −/+ buttons) per debuff type,
+     measured in the **actual total % picked** (with a second figure that adds
+     the fixed static %). It starts from a balanced spread. Because every
+     milestone is a single choice, the debuffs share one limited pool — each
+     slider's *max* is how far it can go using only milestones the others aren't
+     already using, shown as a striped headroom bar and a marker. Stats that can
+     still grow turn **green**; when you push one past its max the stats holding
+     the milestones it needs are flagged **red** so you know which to reduce
+     (lowering one frees exactly what the wanted stat needs). **Apply** loads the
+     allocation into your picks for fine-tuning.
 2. **Static Milestones** — fixed debuffs that always apply (leaders can't
    change these) for every milestone you've reached.
 3. **Total Debuff Summary** — the sum of your picked options **plus** the static

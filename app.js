@@ -289,11 +289,28 @@
 
   // Nudge a stat by one milestone via the +/- buttons.
   function stepStat(s, dir) {
-    const picked = Math.abs(pickedByStat()[s]);
     if (dir < 0) {
-      const sm = smallestAssignedChunk(s);
-      target[s] = sm == null ? 0 : Math.max(0, picked - sm);
+      // Release one of this stat's milestones. If another stat is currently
+      // wanting more, prefer releasing a milestone that the wanting stat can
+      // reuse, so a single press actually frees what it needs.
+      const pk = pickedByStat();
+      const wantingStats = OPTION_TYPES.filter((W) => W !== s && target[W] - Math.abs(pk[W]) > 1e-9);
+      const mine = unlockedRows()
+        .filter((r) => assign[r.milestone] != null && r.options[assign[r.milestone]].type === s);
+      if (!mine.length) {
+        target[s] = 0;
+      } else {
+        const bySize = (a, b) =>
+          Math.abs(a.options[assign[a.milestone]].pct) - Math.abs(b.options[assign[b.milestone]].pct);
+        const helpful = mine
+          .filter((r) => wantingStats.some((W) => offerIndex(r, W) >= 0))
+          .sort(bySize);
+        const chosen = helpful[0] || mine.slice().sort(bySize)[0];
+        delete assign[chosen.milestone];
+        target[s] = Math.abs(pickedByStat()[s]);
+      }
     } else {
+      const picked = Math.abs(pickedByStat()[s]);
       const free = smallestFreeChunk(s);
       if (free != null) {
         target[s] = picked + free;            // claim one free milestone
@@ -407,12 +424,17 @@
         .filter((x) => x.deficit > 1e-9)
         .sort((a, b) => b.deficit - a.deficit);
       for (const { s, deficit } of unmet) {
-        const cand = unlockedRows()
+        const all = unlockedRows()
           .filter((r) => assign[r.milestone] == null && offerIndex(r, s) >= 0)
-          .map((r) => ({ r, oi: offerIndex(r, s), mag: Math.abs(r.options[offerIndex(r, s)].pct) }))
-          .filter((c) => c.mag <= deficit + 1e-9)
-          .sort((a, b) => b.mag - a.mag);
-        if (cand.length) { assign[cand[0].r.milestone] = cand[0].oi; progress = true; break; }
+          .map((r) => ({ r, oi: offerIndex(r, s), mag: Math.abs(r.options[offerIndex(r, s)].pct) }));
+        if (!all.length) continue;
+        // prefer the largest chunk that fits the gap; otherwise take the
+        // smallest available (a slight overshoot) so we always make progress
+        const fit = all.filter((c) => c.mag <= deficit + 1e-9).sort((a, b) => b.mag - a.mag);
+        const pick = fit[0] || all.slice().sort((a, b) => a.mag - b.mag)[0];
+        assign[pick.r.milestone] = pick.oi;
+        progress = true;
+        break;
       }
     }
   }
@@ -432,22 +454,23 @@
         return i >= 0 ? sum + Math.abs(r.options[i].pct) : sum;
       }, 0);
       const softMax = got + freeForS; // reachable now without touching others
+      const freeExists = freeForS > 1e-9;
       const deficit = target[s] - got;
       const wanting = deficit > 1e-9;
 
-      // stats currently holding a milestone that could serve S (and fits the gap)
+      // Genuinely blocked only when it wants more, has no free milestone left,
+      // but other stats hold milestones that could serve it.
       const holders = new Set();
-      if (wanting) {
+      if (wanting && !freeExists) {
         unlockedRows().forEach((r) => {
           const oi = assign[r.milestone];
           if (oi == null) return;
           const held = r.options[oi].type;
           if (held === s) return;
-          const i = offerIndex(r, s);
-          if (i >= 0 && Math.abs(r.options[i].pct) <= deficit + 1e-9) holders.add(held);
+          if (offerIndex(r, s) >= 0) holders.add(held);
         });
       }
-      const realWant = wanting && holders.size > 0;
+      const realWant = wanting && !freeExists && holders.size > 0;
       if (realWant) holders.forEach((h) => blockers.add(h));
 
       rows[s] = {
